@@ -11,12 +11,16 @@ import AuthScreen from "./components/AuthScreen";
 import UnlockScreen from "./components/UnlockScreen";
 import AccountsScreen from "./components/AccountsScreen";
 import NotesScreen from "./components/NotesScreen";
+import PasswordGeneratorScreen from "./components/PasswordGeneratorScreen";
+import ToastProvider from "./components/ToastProvider";
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [cryptoKey, setCryptoKey] = useState<CryptoKey | null>(null);
   const [loading, setLoading] = useState(true);
-  const [section, setSection] = useState<"passwords" | "notes">("passwords");
+  const [section, setSection] = useState<"passwords" | "notes" | "generator">(
+    "passwords"
+  );
   const lastCacheRef = useRef(0);
 
   useEffect(() => {
@@ -86,12 +90,12 @@ export default function App() {
     void cacheCryptoKey(cryptoKey);
   }, [cryptoKey]);
 
-  if (loading) {
-    return <div className="p-6 text-white/70">Загрузка...</div>;
-  }
+  let content: JSX.Element;
 
-  if (!session) {
-    return (
+  if (loading) {
+    content = <div className="p-6 text-white/70">Загрузка...</div>;
+  } else if (!session) {
+    content = (
       <AuthScreen
         onSuccess={(nextSession, key) => {
           setSession(nextSession);
@@ -99,50 +103,60 @@ export default function App() {
         }}
       />
     );
-  }
-
-  if (!cryptoKey) {
-    return (
+  } else if (!cryptoKey) {
+    content = (
       <UnlockScreen
         session={session}
         onUnlock={(key) => setCryptoKey(key)}
         onLogout={handleLogout}
       />
     );
+  } else {
+    content = (
+      <div className="min-h-full">
+        <div className="flex items-center gap-2 border-b border-white/10 bg-black/40 px-4 py-3 text-xs">
+          <button
+            className={`flex-1 rounded-lg px-3 py-2 ${
+              section === "passwords" ? "bg-accent text-white" : "text-white/60"
+            }`}
+            onClick={() => setSection("passwords")}
+          >
+            Аккаунты
+          </button>
+          <button
+            className={`flex-1 rounded-lg px-3 py-2 ${
+              section === "notes" ? "bg-accent text-white" : "text-white/60"
+            }`}
+            onClick={() => setSection("notes")}
+          >
+            Заметки
+          </button>
+          <button
+            className={`flex-1 rounded-lg px-3 py-2 ${
+              section === "generator" ? "bg-accent text-white" : "text-white/60"
+            }`}
+            onClick={() => setSection("generator")}
+          >
+            Генератор
+          </button>
+        </div>
+        {section === "passwords" ? (
+          <AccountsScreen
+            session={session}
+            cryptoKey={cryptoKey}
+            onLogout={handleLogout}
+            onResetKey={() => setCryptoKey(null)}
+            onSessionUpdate={(nextSession) => setSession(nextSession)}
+            onKeyUpdate={(key) => setCryptoKey(key)}
+          />
+        ) : section === "notes" ? (
+          <NotesScreen session={session} cryptoKey={cryptoKey} />
+        ) : (
+          <PasswordGeneratorScreen />
+        )}
+      </div>
+    );
   }
 
-  return (
-    <div className="min-h-full">
-      <div className="flex items-center gap-2 border-b border-white/10 bg-black/40 px-4 py-3 text-xs">
-        <button
-          className={`flex-1 rounded-lg px-3 py-2 ${
-            section === "passwords" ? "bg-accent text-white" : "text-white/60"
-          }`}
-          onClick={() => setSection("passwords")}
-        >
-          Аккаунты
-        </button>
-        <button
-          className={`flex-1 rounded-lg px-3 py-2 ${
-            section === "notes" ? "bg-accent text-white" : "text-white/60"
-          }`}
-          onClick={() => setSection("notes")}
-        >
-          Заметки
-        </button>
-      </div>
-      {section === "passwords" ? (
-        <AccountsScreen
-          session={session}
-          cryptoKey={cryptoKey}
-          onLogout={handleLogout}
-          onResetKey={() => setCryptoKey(null)}
-          onSessionUpdate={(nextSession) => setSession(nextSession)}
-          onKeyUpdate={(key) => setCryptoKey(key)}
-        />
-      ) : (
-        <NotesScreen session={session} cryptoKey={cryptoKey} />
-      )}
-    </div>
-  );
+  return <ToastProvider>{content}</ToastProvider>;
 }

@@ -6,10 +6,213 @@ type FillPayload = {
 
 const STORAGE_KEY = "passkeys_last_credentials";
 const SITE_STORAGE_KEY = "passkeys_site_credentials";
+const PENDING_ACCOUNT_KEY = "passkeys_pending_account";
+const AUTH_URL_KEYWORDS = [
+  "auth",
+  "login",
+  "signin",
+  "sign-in",
+  "sign_in",
+  "signup",
+  "sign-up",
+  "sign_up",
+  "password"
+];
+
+const REGISTRATION_URL_KEYWORDS = [
+  "signup",
+  "sign-up",
+  "sign_up",
+  "register",
+  "registration",
+  "create-account",
+  "create_account"
+];
 
 const isVisible = (element: HTMLElement) => {
   const rect = element.getBoundingClientRect();
   return rect.width > 0 && rect.height > 0;
+};
+
+const isAuthLikeUrl = () => {
+  const href = window.location.href.toLowerCase();
+  return AUTH_URL_KEYWORDS.some((keyword) => href.includes(keyword));
+};
+
+const isRegistrationUrl = () => {
+  const href = window.location.href.toLowerCase();
+  return REGISTRATION_URL_KEYWORDS.some((keyword) => href.includes(keyword));
+};
+
+const createSuggestedPassword = () => {
+  const upper = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+  const lower = "abcdefghijkmnopqrstuvwxyz";
+  const digits = "23456789";
+  const symbols = "!@#$%^&*()-_=+[]{}~";
+  const pools = [upper, lower, digits, symbols];
+
+  const randomInt = (max: number) => {
+    const array = new Uint32Array(1);
+    crypto.getRandomValues(array);
+    return array[0] % max;
+  };
+
+  const all = pools.join("");
+  const result: string[] = [];
+
+  pools.forEach((pool) => {
+    result.push(pool[randomInt(pool.length)]);
+  });
+
+  while (result.length < 16) {
+    result.push(all[randomInt(all.length)]);
+  }
+
+  for (let i = result.length - 1; i > 0; i -= 1) {
+    const j = randomInt(i + 1);
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+
+  return result.join("");
+};
+
+type PendingAccountPayload = {
+  url: string;
+  label: string;
+  username: string;
+  password: string;
+  createdAt: number;
+};
+
+const findPasswordInputIn = (form: HTMLFormElement) => {
+  const candidates = Array.from(
+    form.querySelectorAll<HTMLInputElement>('input[type="password"]')
+  );
+  return candidates.find((input) => !input.disabled && isVisible(input)) ?? null;
+};
+
+const findUsernameInputIn = (
+  form: HTMLFormElement,
+  passwordInput: HTMLInputElement | null
+) => {
+  const inputs = Array.from(
+    form.querySelectorAll<HTMLInputElement>(
+      'input[type="text"], input[type="email"], input[name*="user" i], input[name*="login" i], input[name*="email" i]'
+    )
+  );
+  const usable = inputs.filter((input) => !input.disabled && isVisible(input));
+
+  if (passwordInput) {
+    const preferred = usable.find(
+      (input) => input.type === "text" || input.type === "email"
+    );
+    if (preferred) {
+      return preferred;
+    }
+  }
+
+  return usable[0] ?? null;
+};
+
+const buildPendingPayload = (passwordInput: HTMLInputElement) => {
+  const password = passwordInput.value.trim();
+  if (!password) {
+    return null;
+  }
+  let url = window.location.href;
+  let label = document.title.trim();
+  try {
+    const parsed = new URL(window.location.href);
+    url = parsed.origin;
+    label = parsed.hostname;
+  } catch {
+    // keep defaults
+  }
+
+  return {
+    url,
+    label,
+    username: "",
+    password,
+    createdAt: Date.now()
+  } satisfies PendingAccountPayload;
+};
+
+let savePrompt: HTMLDivElement | null = null;
+
+const hideSavePrompt = () => {
+  if (savePrompt) {
+    savePrompt.remove();
+    savePrompt = null;
+  }
+};
+
+const showSavePrompt = (payload: PendingAccountPayload) => {
+  if (savePrompt) {
+    return;
+  }
+  savePrompt = document.createElement("div");
+  savePrompt.style.position = "fixed";
+  savePrompt.style.left = "50%";
+  savePrompt.style.top = "16px";
+  savePrompt.style.transform = "translateX(-50%)";
+  savePrompt.style.zIndex = "2147483647";
+  savePrompt.style.background = "#1f1f24";
+  savePrompt.style.border = "1px solid rgba(255, 255, 255, 0.1)";
+  savePrompt.style.borderRadius = "12px";
+  savePrompt.style.padding = "10px 12px";
+  savePrompt.style.boxShadow = "0 6px 20px rgba(0, 0, 0, 0.35)";
+  savePrompt.style.fontFamily = "system-ui, -apple-system, Segoe UI, sans-serif";
+  savePrompt.style.fontSize = "12px";
+  savePrompt.style.color = "white";
+  savePrompt.style.display = "flex";
+  savePrompt.style.alignItems = "center";
+  savePrompt.style.gap = "10px";
+
+  const label = document.createElement("span");
+  label.textContent = "Сохранить учетные данные в Passkeys?";
+  label.style.whiteSpace = "nowrap";
+
+  const saveButton = document.createElement("button");
+  saveButton.type = "button";
+  saveButton.textContent = "Сохранить";
+  saveButton.style.background = "#2E90FA";
+  saveButton.style.border = "none";
+  saveButton.style.color = "white";
+  saveButton.style.padding = "6px 10px";
+  saveButton.style.borderRadius = "8px";
+  saveButton.style.cursor = "pointer";
+  saveButton.style.fontSize = "12px";
+
+  const dismissButton = document.createElement("button");
+  dismissButton.type = "button";
+  dismissButton.textContent = "Не сейчас";
+  dismissButton.style.background = "transparent";
+  dismissButton.style.border = "none";
+  dismissButton.style.color = "rgba(255, 255, 255, 0.7)";
+  dismissButton.style.cursor = "pointer";
+  dismissButton.style.fontSize = "12px";
+
+  saveButton.addEventListener("click", async () => {
+    const passwordInput = findPasswordInput();
+    const usernameInput = findUsernameInput(passwordInput);
+    const updatedPayload = {
+      ...payload,
+      username: usernameInput?.value.trim() ?? payload.username
+    };
+
+    if (typeof chrome !== "undefined" && chrome.storage?.local) {
+      await chrome.storage.local.set({ [PENDING_ACCOUNT_KEY]: updatedPayload });
+    }
+    hideSavePrompt();
+  });
+
+  dismissButton.addEventListener("click", hideSavePrompt);
+
+  savePrompt.appendChild(label);
+  savePrompt.appendChild(saveButton);
+  savePrompt.appendChild(dismissButton);
+  document.body.appendChild(savePrompt);
 };
 
 const isSupportedInput = (input: HTMLInputElement) => {
@@ -210,6 +413,9 @@ const tryAutoFill = async () => {
   if (autoFilled) {
     return;
   }
+  if (!isAuthLikeUrl()) {
+    return;
+  }
   const creds = await getCredentialsForSite();
   if (!creds || !isCredentialMatch(creds)) {
     return;
@@ -232,6 +438,20 @@ document.addEventListener("focusin", async (event) => {
   const target = event.target;
   if (!(target instanceof HTMLInputElement) || !isSupportedInput(target)) {
     hidePopover();
+    return;
+  }
+  if (!isAuthLikeUrl()) {
+    hidePopover();
+    return;
+  }
+
+  if (isRegistrationUrl() && target.type === "password") {
+    showPopover(target, "Сгенерировать пароль", () => {
+      const password = createSuggestedPassword();
+      if (password) {
+        fillInput(target, password);
+      }
+    });
     return;
   }
 
@@ -288,6 +508,33 @@ const observer = new MutationObserver(() => {
 });
 
 observer.observe(document.documentElement, { childList: true, subtree: true });
+
+document.addEventListener(
+  "submit",
+  (event) => {
+    if (!isRegistrationUrl()) {
+      return;
+    }
+    const target = event.target;
+    if (!(target instanceof HTMLFormElement)) {
+      return;
+    }
+    const passwordInput = findPasswordInputIn(target);
+    if (!passwordInput) {
+      return;
+    }
+    const payload = buildPendingPayload(passwordInput);
+    if (!payload) {
+      return;
+    }
+    const usernameInput = findUsernameInputIn(target, passwordInput);
+    if (usernameInput?.value) {
+      payload.username = usernameInput.value.trim();
+    }
+    showSavePrompt(payload);
+  },
+  true
+);
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type !== "FILL_CREDENTIALS") {

@@ -16,7 +16,7 @@ const Modal = ({ title, onClose, children }: ModalProps) => {
       onClick={onClose}
     >
       <div
-        className="w-full max-w-sm rounded-2xl border border-white/10 bg-panel p-4 shadow-xl"
+        className="flex max-h-[85vh] w-full max-w-sm flex-col rounded-2xl border border-white/10 bg-panel p-4 shadow-xl"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-center justify-between">
@@ -29,7 +29,7 @@ const Modal = ({ title, onClose, children }: ModalProps) => {
             <AiOutlineClose width={36} height={36} />
           </button>
         </div>
-        {children}
+        <div className="flex-1 overflow-y-auto">{children}</div>
       </div>
     </div>
   );

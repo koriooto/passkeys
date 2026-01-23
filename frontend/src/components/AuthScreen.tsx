@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { Session } from "../types";
 import { setStoredSession } from "../storage";
-import { loginUser, registerUser } from "../api/auth";
+import { useAuthMutation } from "../api/authQueries";
 import { deriveKey } from "../crypto/crypto";
 
 type AuthMode = "login" | "register";
@@ -15,23 +15,17 @@ const AuthScreen = ({ onSuccess }: AuthScreenProps) => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  const authMutation = useAuthMutation();
 
   const handleSubmit = async () => {
     setError(null);
-    setSubmitting(true);
     try {
-      const session =
-        mode === "login"
-          ? await loginUser(email, password)
-          : await registerUser(email, password);
+      const session = await authMutation.mutateAsync({ mode, email, password });
       await setStoredSession(session);
       const key = await deriveKey(password, session.kdfSalt);
       onSuccess(session, key);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Ошибка авторизации");
-    } finally {
-      setSubmitting(false);
     }
   };
 
@@ -86,9 +80,9 @@ const AuthScreen = ({ onSuccess }: AuthScreenProps) => {
           <button
             className="w-full rounded-xl bg-accent px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"
             onClick={handleSubmit}
-            disabled={submitting || !email || password.length < 6}
+            disabled={authMutation.isPending || !email || password.length < 6}
           >
-            {submitting ? "Подождите..." : mode === "login" ? "Войти" : "Создать"}
+            {authMutation.isPending ? "Подождите..." : mode === "login" ? "Войти" : "Создать"}
           </button>
         </div>
       </div>

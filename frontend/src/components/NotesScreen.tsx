@@ -1,8 +1,8 @@
 import { useMemo, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useDeleteNoteMutation, useNotesQuery, useSaveNoteMutation } from "../api/notesQueries";
 import type { NoteDecrypted, Session } from "../types";
-import { createNote, deleteNote, listNotes, updateNote } from "../api/notes";
 import Modal from "./Modal";
+import { useToast } from "./ToastProvider";
 
 type NotesScreenProps = {
   session: Session;
@@ -10,51 +10,58 @@ type NotesScreenProps = {
 };
 
 const NotesScreen = ({ session, cryptoKey }: NotesScreenProps) => {
-  const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState<NoteDecrypted | null>(null);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<NoteDecrypted | null>(null);
   const [previewTarget, setPreviewTarget] = useState<NoteDecrypted | null>(null);
+  const collator = useMemo(() => new Intl.Collator("ru", { sensitivity: "base" }), []);
+  const { toast } = useToast();
 
-  const notesQuery = useQuery({
-    queryKey: ["notes", session.token],
-    queryFn: () => listNotes(session.token, cryptoKey),
-    enabled: !!cryptoKey,
-    retry: false
-  });
+  const saveNoteMutation = useSaveNoteMutation(session.token, cryptoKey);
+  const deleteNoteMutation = useDeleteNoteMutation(session.token);
+  const notesQuery = useNotesQuery(session.token, cryptoKey);
 
   const filtered = useMemo(() => {
     if (!notesQuery.data) {
       return [];
     }
     if (!search) {
-      return notesQuery.data;
+      return [...notesQuery.data].sort((first, second) =>
+        collator.compare(first.title, second.title)
+      );
     }
     const normalized = search.toLowerCase();
-    return notesQuery.data.filter(
+    return notesQuery.data
+      .filter(
       (note) =>
         note.title.toLowerCase().includes(normalized) ||
         note.text.toLowerCase().includes(normalized)
-    );
-  }, [notesQuery.data, search]);
+      )
+      .sort((first, second) => collator.compare(first.title, second.title));
+  }, [collator, notesQuery.data, search]);
 
   const handleSave = async (payload: { id?: string; title: string; text: string }) => {
-    const { id, ...data } = payload;
-    if (id) {
-      await updateNote(session.token, cryptoKey, id, data);
-    } else {
-      await createNote(session.token, cryptoKey, data);
+    const { id } = payload;
+    try {
+      await saveNoteMutation.mutateAsync(payload);
+      setEditing(null);
+      setIsAddOpen(false);
+      toast.success(id ? "Заметка обновлена" : "Заметка добавлена");
+    } catch (err) {
+      toast.error("Не удалось сохранить заметку");
+      throw err;
     }
-    setEditing(null);
-    setIsAddOpen(false);
-    await queryClient.invalidateQueries({ queryKey: ["notes"] });
   };
 
   const handleDelete = async (id: string) => {
-    await deleteNote(session.token, id);
-    setDeleteTarget(null);
-    await queryClient.invalidateQueries({ queryKey: ["notes"] });
+    try {
+      await deleteNoteMutation.mutateAsync(id);
+      setDeleteTarget(null);
+      toast.success("Заметка удалена");
+    } catch {
+      toast.error("Не удалось удалить заметку");
+    }
   };
 
   return (
@@ -99,7 +106,7 @@ const NotesScreen = ({ session, cryptoKey }: NotesScreenProps) => {
                   className="text-xs text-white/60"
                   onClick={() => setEditing(note)}
                 >
-                  Правка
+                  Редактировать
                 </button>
               </div>
               <p className="mt-2 text-xs text-white/70 line-clamp-3 whitespace-pre-wrap">

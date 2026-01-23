@@ -1,10 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useAccountsQuery, useDeleteAccountMutation, useSaveAccountMutation } from "../api/accountsQueries";
 import type { AccountDecrypted, Session } from "../types";
-import { createAccount, deleteAccount, listAccounts, updateAccount } from "../api/accounts";
-import { changeMasterPassword } from "../api/auth";
-import { deriveKey } from "../crypto/crypto";
-import { setStoredSession } from "../storage";
+import { useChangeMasterPasswordMutation } from "../api/authQueries";
 import { getActiveTabUrl, sendFillMessage } from "../utils/chrome";
 import {
   AiOutlineCopy,
@@ -13,10 +10,27 @@ import {
   AiOutlineSetting
 } from "react-icons/ai";
 import EmptyState from "./EmptyState";
-import PasswordGenerator from "./PasswordGenerator";
 import AccountForm from "./AccountForm";
 import ChangeMasterPassword from "./ChangeMasterPassword";
 import Modal from "./Modal";
+import { useToast } from "./ToastProvider";
+
+const PENDING_ACCOUNT_KEY = "passkeys_pending_account";
+
+type PendingAccountDraft = {
+  url: string;
+  label: string;
+  username: string;
+  password: string;
+};
+
+type AccountSavePayload = {
+  id?: string;
+  url: string;
+  label: string;
+  username: string;
+  password: string;
+};
 
 type AccountsScreenProps = {
   session: Session;
@@ -35,7 +49,6 @@ const AccountsScreen = ({
   onSessionUpdate,
   onKeyUpdate
 }: AccountsScreenProps) => {
-  const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState<AccountDecrypted | null>(null);
   const [urlDefault, setUrlDefault] = useState<string>("");
@@ -45,6 +58,19 @@ const AccountsScreen = ({
   const [groupIndexMap, setGroupIndexMap] = useState<Record<string, number>>({});
   const [deleteTarget, setDeleteTarget] = useState<AccountDecrypted | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [pendingDraft, setPendingDraft] = useState<PendingAccountDraft | null>(null);
+  const collator = useMemo(() => new Intl.Collator("ru", { sensitivity: "base" }), []);
+  const { toast } = useToast();
+
+  const accountsQuery = useAccountsQuery(session.token, cryptoKey);
+  const saveAccountMutation = useSaveAccountMutation(session.token, cryptoKey);
+  const deleteAccountMutation = useDeleteAccountMutation(session.token);
+  const changePasswordMutation = useChangeMasterPasswordMutation({
+    session,
+    cryptoKey,
+    onSessionUpdate,
+    onKeyUpdate
+  });
 
   useEffect(() => {
     const loadUrl = async () => {
@@ -61,12 +87,29 @@ const AccountsScreen = ({
     void loadUrl();
   }, []);
 
-  const accountsQuery = useQuery({
-    queryKey: ["accounts", session.token],
-    queryFn: () => listAccounts(session.token, cryptoKey),
-    enabled: !!cryptoKey,
-    retry: false
-  });
+  useEffect(() => {
+    const loadPending = async () => {
+      if (typeof chrome === "undefined" || !chrome.storage?.local) {
+        return;
+      }
+      const result = await chrome.storage.local.get(PENDING_ACCOUNT_KEY);
+      const pending = result[PENDING_ACCOUNT_KEY] as PendingAccountDraft | undefined;
+      if (pending) {
+        setPendingDraft(pending);
+        setIsAddOpen(true);
+        setFormKey((prev) => prev + 1);
+        toast.success("Найдены данные для сохранения");
+      }
+    };
+    void loadPending();
+  }, [toast]);
+
+  const clearPendingDraft = async () => {
+    setPendingDraft(null);
+    if (typeof chrome !== "undefined" && chrome.storage?.local) {
+      await chrome.storage.local.remove(PENDING_ACCOUNT_KEY);
+    }
+  };
 
   useEffect(() => {
     if (!accountsQuery.data || typeof chrome === "undefined" || !chrome.storage?.local) {
@@ -120,11 +163,19 @@ const AccountsScreen = ({
       list.push(account);
       map.set(key, list);
     });
-    return Array.from(map.entries()).map(([origin, accounts]) => ({
-      origin,
-      accounts
-    }));
-  }, [filtered]);
+    return Array.from(map.entries())
+      .map(([origin, accounts]) => ({
+        origin,
+        accounts: [...accounts].sort((first, second) => {
+          const labelCompare = collator.compare(first.label, second.label);
+          if (labelCompare !== 0) {
+            return labelCompare;
+          }
+          return collator.compare(first.username, second.username);
+        })
+      }))
+      .sort((first, second) => collator.compare(first.origin, second.origin));
+  }, [collator, filtered]);
 
   useEffect(() => {
     setGroupIndexMap((prev) => {
@@ -138,29 +189,31 @@ const AccountsScreen = ({
     });
   }, [grouped]);
 
-  const handleSave = async (payload: {
-    id?: string;
-    url: string;
-    label: string;
-    username: string;
-    password: string;
-  }) => {
-    const { id, ...data } = payload;
-    if (id) {
-      await updateAccount(session.token, cryptoKey, id, data);
-    } else {
-      await createAccount(session.token, cryptoKey, data);
+  const handleSave = async (payload: AccountSavePayload) => {
+    const { id } = payload;
+    try {
+      await saveAccountMutation.mutateAsync(payload);
+      setEditing(null);
+      setIsAddOpen(false);
+      setFormKey((prev) => prev + 1);
+      if (!id) {
+        await clearPendingDraft();
+      }
+      toast.success(id ? "Запись обновлена" : "Запись добавлена");
+    } catch (err) {
+      toast.error("Не удалось сохранить запись");
+      throw err;
     }
-    setEditing(null);
-    setIsAddOpen(false);
-    setFormKey((prev) => prev + 1);
-    await queryClient.invalidateQueries({ queryKey: ["accounts"] });
   };
 
   const handleDelete = async (id: string) => {
-    await deleteAccount(session.token, id);
-    setDeleteTarget(null);
-    await queryClient.invalidateQueries({ queryKey: ["accounts"] });
+    try {
+      await deleteAccountMutation.mutateAsync(id);
+      setDeleteTarget(null);
+      toast.success("Запись удалена");
+    } catch {
+      toast.error("Не удалось удалить запись");
+    }
   };
 
   const handleCopyPassword = async (password: string, id: string) => {
@@ -176,30 +229,12 @@ const AccountsScreen = ({
   };
 
   const handleChangePassword = async (currentPassword: string, newPassword: string) => {
-    const result = await changeMasterPassword(
-      session.token,
-      currentPassword,
-      newPassword
-    );
-    const newKey = await deriveKey(newPassword, result.kdfSalt);
-    const accounts = await listAccounts(session.token, cryptoKey);
-
-    await Promise.all(
-      accounts.map((account) =>
-        updateAccount(session.token, newKey, account.id, {
-          url: account.url,
-          label: account.label,
-          username: account.username,
-          password: account.password
-        })
-      )
-    );
-
-    const nextSession = { ...session, kdfSalt: result.kdfSalt };
-    await setStoredSession(nextSession);
-    onSessionUpdate(nextSession);
-    onKeyUpdate(newKey);
-    await queryClient.invalidateQueries({ queryKey: ["accounts"] });
+    try {
+      await changePasswordMutation.mutateAsync({ currentPassword, newPassword });
+      toast.success("Мастер-пароль обновлен");
+    } catch {
+      toast.error("Не удалось обновить мастер-пароль");
+    }
   };
 
   return (
@@ -282,7 +317,7 @@ const AccountsScreen = ({
                     className="text-xs text-white/60"
                     onClick={() => setEditing(account)}
                   >
-                    Правка
+                    Редактировать
                   </button>
                 </div>
                 {group.accounts.length > 1 ? (
@@ -346,21 +381,28 @@ const AccountsScreen = ({
         )}
       </div>
 
-      <details className="mt-6 rounded-xl border border-white/10 bg-panel p-4">
-        <summary className="cursor-pointer text-sm font-semibold text-white/80">
-          Генератор паролей
-        </summary>
-        <div className="mt-3">
-          <PasswordGenerator />
-        </div>
-      </details>
-
       {isAddOpen ? (
-        <Modal title="Добавить веб-сайт" onClose={() => setIsAddOpen(false)}>
+        <Modal
+          title="Добавить веб-сайт"
+          onClose={async () => {
+            await clearPendingDraft();
+            setIsAddOpen(false);
+          }}
+        >
           <AccountForm
-            key={`${urlDefault}-${formKey}`}
-            initial={{ url: urlDefault, label: "", username: "", password: "" }}
-            onCancel={() => setIsAddOpen(false)}
+            key={`${pendingDraft?.url ?? urlDefault}-${formKey}`}
+            initial={
+              pendingDraft ?? {
+                url: urlDefault,
+                label: "",
+                username: "",
+                password: ""
+              }
+            }
+            onCancel={async () => {
+              await clearPendingDraft();
+              setIsAddOpen(false);
+            }}
             onSave={handleSave}
             isEditing={false}
           />
