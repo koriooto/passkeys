@@ -1,6 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createAccount, deleteAccount, listAccounts, updateAccount } from "./accounts";
-import type { AccountDecrypted } from "../types";
 
 type AccountSavePayload = {
   id?: string;
