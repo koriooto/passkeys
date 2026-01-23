@@ -1,0 +1,29 @@
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: passkeys
+      POSTGRES_PASSWORD: passkeys
+      POSTGRES_DB: passkeys
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/migrations:/migrations:ro
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    depends_on:
+      - db
+    environment:
+      DATABASE_URL: postgres://passkeys:passkeys@db:5432/passkeys?sslmode=disable
+      JWT_SECRET: change-me
+      PORT: 8080
+    ports:
+      - "8080:8080"
+
+volumes:
+  pgdata:
