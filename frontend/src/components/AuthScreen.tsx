@@ -17,7 +17,8 @@ const AuthScreen = ({ onSuccess }: AuthScreenProps) => {
   const [error, setError] = useState<string | null>(null);
   const authMutation = useAuthMutation();
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
     setError(null);
     try {
       const session = await authMutation.mutateAsync({ mode, email, password });
@@ -61,7 +62,7 @@ const AuthScreen = ({ onSuccess }: AuthScreenProps) => {
             Регистрация
           </button>
         </div>
-        <div className="mt-5 space-y-3">
+        <form className="mt-5 space-y-3" onSubmit={handleSubmit}>
           <input
             className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm outline-none focus:border-accent"
             placeholder="Email"
@@ -79,12 +80,12 @@ const AuthScreen = ({ onSuccess }: AuthScreenProps) => {
           {error ? <p className="text-sm text-red-400">{error}</p> : null}
           <button
             className="w-full rounded-xl bg-accent px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"
-            onClick={handleSubmit}
+            type="submit"
             disabled={authMutation.isPending || !email || password.length < 6}
           >
             {authMutation.isPending ? "Подождите..." : mode === "login" ? "Войти" : "Создать"}
           </button>
-        </div>
+        </form>
       </div>
     </div>
   );

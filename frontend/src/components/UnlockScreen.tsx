@@ -13,7 +13,8 @@ const UnlockScreen = ({ session, onUnlock, onLogout }: UnlockScreenProps) => {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const handleUnlock = async () => {
+  const handleUnlock = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
     setError(null);
     setSubmitting(true);
     try {
@@ -40,7 +41,7 @@ const UnlockScreen = ({ session, onUnlock, onLogout }: UnlockScreenProps) => {
         <p className="mt-2 text-sm text-white/60">
           Хранилище заблокировано. Введите мастер-пароль.
         </p>
-        <div className="mt-5 space-y-3">
+        <form className="mt-5 space-y-3" onSubmit={handleUnlock}>
           <input
             className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm outline-none focus:border-accent"
             placeholder="Мастер-пароль"
@@ -51,8 +52,8 @@ const UnlockScreen = ({ session, onUnlock, onLogout }: UnlockScreenProps) => {
           {error ? <p className="text-sm text-red-400">{error}</p> : null}
           <button
             className="w-full rounded-xl bg-accent px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"
-            onClick={handleUnlock}
             disabled={submitting || password.length < 6}
+            type="submit"
           >
             {submitting ? "Подождите..." : "Разблокировать"}
           </button>
@@ -62,7 +63,7 @@ const UnlockScreen = ({ session, onUnlock, onLogout }: UnlockScreenProps) => {
           >
             Выйти
           </button>
-        </div>
+        </form>
       </div>
     </div>
   );
