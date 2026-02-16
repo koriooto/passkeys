@@ -20,7 +20,9 @@ services:
       - db
     environment:
       DATABASE_URL: postgres://passkeys:passkeys@db:5432/passkeys?sslmode=disable
-      JWT_SECRET: change-me
+      JWT_SECRET: ${JWT_SECRET:-change-me}
+      JWT_ACCESS_HOURS: ${JWT_ACCESS_HOURS:-1}
+      JWT_REFRESH_HOURS: ${JWT_REFRESH_HOURS:-720}
       PORT: 8080
     ports:
       - "8080:8080"

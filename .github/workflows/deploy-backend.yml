@@ -1,0 +1,60 @@
+name: Deploy Backend
+
+on:
+  push:
+    branches: [master, main]
+  workflow_dispatch:
+
+env:
+  DEPLOY_PATH: /opt/passkeys
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create .env from secrets
+        run: |
+          echo "JWT_SECRET=${{ secrets.JWT_SECRET }}" > .env
+          echo "JWT_ACCESS_HOURS=${{ secrets.JWT_ACCESS_HOURS }}" >> .env
+          echo "JWT_REFRESH_HOURS=${{ secrets.JWT_REFRESH_HOURS }}" >> .env
+
+      - name: Install sshpass
+        run: sudo apt-get update && sudo apt-get install -y sshpass
+
+      - name: Sync files to server
+        env:
+          SSH_HOST: ${{ secrets.SERVER_IP }}
+          SSH_USER: ${{ secrets.SERVER_USER }}
+          SSH_PASS: ${{ secrets.SERVER_PASSWORD }}
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H $SSH_HOST >> ~/.ssh/known_hosts 2>/dev/null || true
+          sshpass -p "$SSH_PASS" rsync -avz --delete \
+            -e "ssh -o StrictHostKeyChecking=no" \
+            --exclude '.git' \
+            --exclude 'node_modules' \
+            --exclude 'frontend/dist' \
+            . ${SSH_USER}@${SSH_HOST}:${{ env.DEPLOY_PATH }}/
+
+      - name: Deploy and run migrations
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: ${{ secrets.SERVER_USER }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          script: |
+            cd ${{ env.DEPLOY_PATH }}
+            # Поднимаем только db, ждём готовности
+            docker compose up -d db
+            sleep 5
+            # Применяем миграции (idempotent: IF NOT EXISTS)
+            docker compose exec -T db psql -U passkeys -d passkeys -f /migrations/001_init.sql
+            docker compose exec -T db psql -U passkeys -d passkeys -f /migrations/002_rename_domain_to_url.sql
+            docker compose exec -T db psql -U passkeys -d passkeys -f /migrations/003_notes.sql
+            docker compose exec -T db psql -U passkeys -d passkeys -f /migrations/004_refresh_tokens.sql
+            # Собираем и поднимаем api
+            docker compose build --no-cache api
+            docker compose up -d

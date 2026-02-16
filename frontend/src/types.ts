@@ -1,5 +1,6 @@
 export type Session = {
   token: string;
+  refreshToken?: string; // опционально для обратной совместимости
   email: string;
   kdfSalt: string;
 };

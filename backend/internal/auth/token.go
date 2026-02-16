@@ -12,12 +12,24 @@ type Claims struct {
 	jwt.RegisteredClaims
 }
 
+// DefaultAccessTokenLifetime — 1 час.
+const DefaultAccessTokenLifetime = 1 * time.Hour
+
+// DefaultRefreshTokenLifetime — 30 дней.
+const DefaultRefreshTokenLifetime = 30 * 24 * time.Hour
+
 func CreateToken(secret []byte, userID, email string) (string, error) {
+	return CreateTokenWithLifetime(secret, userID, email, DefaultAccessTokenLifetime)
+}
+
+func CreateTokenWithLifetime(secret []byte, userID, email string, lifetime time.Duration) (string, error) {
+	now := time.Now()
 	claims := &Claims{
 		UserID: userID,
 		Email:  email,
 		RegisteredClaims: jwt.RegisteredClaims{
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			IssuedAt:  jwt.NewNumericDate(now),
+			ExpiresAt: jwt.NewNumericDate(now.Add(lifetime)),
 		},
 	}
 

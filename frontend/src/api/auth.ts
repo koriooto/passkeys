@@ -3,8 +3,14 @@ import type { Session } from "../types";
 
 type AuthResponse = {
   token: string;
+  refreshToken: string;
   email: string;
   kdfSalt: string;
+};
+
+type RefreshResponse = {
+  token: string;
+  refreshToken: string;
 };
 
 type ChangePasswordResponse = {
@@ -21,6 +27,7 @@ export const registerUser = async (
   });
   return {
     token: data.token,
+    refreshToken: data.refreshToken,
     email: data.email,
     kdfSalt: data.kdfSalt
   };
@@ -36,9 +43,20 @@ export const loginUser = async (
   });
   return {
     token: data.token,
+    refreshToken: data.refreshToken,
     email: data.email,
     kdfSalt: data.kdfSalt
   };
+};
+
+export const refreshSession = async (
+  refreshToken: string
+): Promise<Pick<Session, "token" | "refreshToken">> => {
+  const data = await apiRequest<RefreshResponse>("/auth/refresh", {
+    method: "POST",
+    body: { refreshToken }
+  });
+  return { token: data.token, refreshToken: data.refreshToken };
 };
 
 export const changeMasterPassword = async (

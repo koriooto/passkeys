@@ -27,6 +27,8 @@ Browser extension + backend for managing accounts and notes with client‑side e
 ```
 DATABASE_URL=postgres://USER:PASSWORD@HOST:PORT/DBNAME?sslmode=disable
 JWT_SECRET=super-secret
+JWT_ACCESS_HOURS=1     # access token TTL (default 1h)
+JWT_REFRESH_HOURS=720 # refresh token TTL (default 30 days)
 PORT=8080
 ```
 
@@ -47,6 +49,7 @@ Apply migrations (inside compose):
 docker compose exec db psql -U passkeys -d passkeys -f /migrations/001_init.sql
 docker compose exec db psql -U passkeys -d passkeys -f /migrations/002_rename_domain_to_url.sql
 docker compose exec db psql -U passkeys -d passkeys -f /migrations/003_notes.sql
+docker compose exec db psql -U passkeys -d passkeys -f /migrations/004_refresh_tokens.sql
 ```
 
 ---

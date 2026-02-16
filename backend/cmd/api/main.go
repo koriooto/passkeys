@@ -5,11 +5,13 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
 
+	"passkeys/internal/auth"
 	"passkeys/internal/db"
 	"passkeys/internal/handlers"
 	"passkeys/internal/middleware"
@@ -28,7 +30,25 @@ func main() {
 		log.Fatal("JWT_SECRET is required")
 	}
 
-	authHandler := &handlers.AuthHandler{DB: pool, Secret: []byte(secret)}
+	accessLifetime := auth.DefaultAccessTokenLifetime
+	if h := os.Getenv("JWT_ACCESS_HOURS"); h != "" {
+		if hours, err := strconv.Atoi(h); err == nil && hours > 0 {
+			accessLifetime = time.Duration(hours) * time.Hour
+		}
+	}
+	refreshLifetime := auth.DefaultRefreshTokenLifetime
+	if h := os.Getenv("JWT_REFRESH_HOURS"); h != "" {
+		if hours, err := strconv.Atoi(h); err == nil && hours > 0 {
+			refreshLifetime = time.Duration(hours) * time.Hour
+		}
+	}
+
+	authHandler := &handlers.AuthHandler{
+		DB:                  pool,
+		Secret:              []byte(secret),
+		AccessTokenLifetime:  accessLifetime,
+		RefreshTokenLifetime: refreshLifetime,
+	}
 	accountHandler := &handlers.AccountHandler{DB: pool}
 	noteHandler := &handlers.NoteHandler{DB: pool}
 
@@ -48,6 +68,7 @@ func main() {
 	router.Route("/auth", func(r chi.Router) {
 		r.Post("/register", authHandler.Register)
 		r.Post("/login", authHandler.Login)
+		r.Post("/refresh", authHandler.Refresh)
 		r.With(middleware.AuthMiddleware([]byte(secret))).Post("/password", authHandler.ChangePassword)
 	})
 

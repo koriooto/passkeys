@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import type { Session } from "./types";
+import { setApiSessionConfig } from "./api/client";
 import {
   cacheCryptoKey,
   clearCachedCryptoKey,
   clearStoredSession,
   getStoredSession,
-  loadCachedCryptoKey
+  loadCachedCryptoKey,
+  setStoredSession
 } from "./storage";
 import AuthScreen from "./components/AuthScreen";
 import UnlockScreen from "./components/UnlockScreen";
@@ -22,6 +24,19 @@ export default function App() {
     "passwords"
   );
   const lastCacheRef = useRef(0);
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
+
+  useEffect(() => {
+    setApiSessionConfig({
+      getSession: () => sessionRef.current,
+      setSession: (s) => {
+        setSession(s);
+        if (s) void setStoredSession(s);
+      }
+    });
+    return () => setApiSessionConfig(null);
+  }, []);
 
   useEffect(() => {
     const load = async () => {

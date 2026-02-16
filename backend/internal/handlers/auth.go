@@ -3,9 +3,12 @@ package handlers
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
 
@@ -16,8 +19,10 @@ import (
 )
 
 type AuthHandler struct {
-	DB     *pgxpool.Pool
-	Secret []byte
+	DB                  *pgxpool.Pool
+	Secret              []byte
+	AccessTokenLifetime  time.Duration
+	RefreshTokenLifetime time.Duration
 }
 
 type authRequest struct {
@@ -26,9 +31,19 @@ type authRequest struct {
 }
 
 type authResponse struct {
-	Token   string `json:"token"`
-	Email   string `json:"email"`
-	KdfSalt string `json:"kdfSalt"`
+	Token        string `json:"token"`
+	RefreshToken string `json:"refreshToken"`
+	Email        string `json:"email"`
+	KdfSalt      string `json:"kdfSalt"`
+}
+
+type refreshRequest struct {
+	RefreshToken string `json:"refreshToken"`
+}
+
+type refreshResponse struct {
+	Token        string `json:"token"`
+	RefreshToken string `json:"refreshToken"`
 }
 
 type changePasswordRequest struct {
@@ -82,16 +97,17 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := auth.CreateToken(h.Secret, userID, req.Email)
+	accessToken, refreshToken, err := h.createTokenPair(r.Context(), userID, req.Email)
 	if err != nil {
 		http.Error(w, "token error", http.StatusInternalServerError)
 		return
 	}
 
 	respondJSON(w, authResponse{
-		Token:   token,
-		Email:   req.Email,
-		KdfSalt: base64.StdEncoding.EncodeToString(salt),
+		Token:        accessToken,
+		RefreshToken: refreshToken,
+		Email:        req.Email,
+		KdfSalt:      base64.StdEncoding.EncodeToString(salt),
 	})
 }
 
@@ -118,16 +134,46 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := auth.CreateToken(h.Secret, userID, req.Email)
+	accessToken, refreshToken, err := h.createTokenPair(r.Context(), userID, req.Email)
 	if err != nil {
 		http.Error(w, "token error", http.StatusInternalServerError)
 		return
 	}
 
 	respondJSON(w, authResponse{
-		Token:   token,
-		Email:   req.Email,
-		KdfSalt: base64.StdEncoding.EncodeToString(salt),
+		Token:        accessToken,
+		RefreshToken: refreshToken,
+		Email:        req.Email,
+		KdfSalt:      base64.StdEncoding.EncodeToString(salt),
+	})
+}
+
+func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
+	var req refreshRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	if req.RefreshToken == "" {
+		http.Error(w, "refresh token required", http.StatusBadRequest)
+		return
+	}
+
+	userID, email, err := h.validateAndRevokeRefreshToken(r.Context(), req.RefreshToken)
+	if err != nil {
+		http.Error(w, "invalid refresh token", http.StatusUnauthorized)
+		return
+	}
+
+	accessToken, refreshToken, err := h.createTokenPair(r.Context(), userID, email)
+	if err != nil {
+		http.Error(w, "token error", http.StatusInternalServerError)
+		return
+	}
+
+	respondJSON(w, refreshResponse{
+		Token:        accessToken,
+		RefreshToken: refreshToken,
 	})
 }
 
@@ -179,9 +225,55 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Инвалидируем все refresh-токены при смене пароля
+	_, _ = h.DB.Exec(r.Context(), "delete from refresh_tokens where user_id=$1", user.ID)
+
 	respondJSON(w, changePasswordResponse{
 		KdfSalt: base64.StdEncoding.EncodeToString(salt),
 	})
+}
+
+func (h *AuthHandler) createTokenPair(ctx context.Context, userID, email string) (accessToken, refreshToken string, err error) {
+	accessToken, err = auth.CreateTokenWithLifetime(h.Secret, userID, email, h.AccessTokenLifetime)
+	if err != nil {
+		return "", "", err
+	}
+
+	refreshBytes := make([]byte, 32)
+	if _, err := rand.Read(refreshBytes); err != nil {
+		return "", "", err
+	}
+	refreshToken = base64.URLEncoding.EncodeToString(refreshBytes)
+	tokenHash := sha256.Sum256([]byte(refreshToken))
+	hashHex := hex.EncodeToString(tokenHash[:])
+	expiresAt := time.Now().Add(h.RefreshTokenLifetime)
+
+	if _, err := h.DB.Exec(ctx,
+		"insert into refresh_tokens (user_id, token_hash, expires_at) values ($1, $2, $3)",
+		userID, hashHex, expiresAt,
+	); err != nil {
+		return "", "", err
+	}
+
+	return accessToken, refreshToken, nil
+}
+
+func (h *AuthHandler) validateAndRevokeRefreshToken(ctx context.Context, token string) (userID, email string, err error) {
+	tokenHash := sha256.Sum256([]byte(token))
+	hashHex := hex.EncodeToString(tokenHash[:])
+
+	err = h.DB.QueryRow(ctx,
+		"delete from refresh_tokens where token_hash=$1 and expires_at>now() returning user_id",
+		hashHex,
+	).Scan(&userID)
+	if err != nil {
+		return "", "", err
+	}
+
+	if err := h.DB.QueryRow(ctx, "select email from users where id=$1", userID).Scan(&email); err != nil {
+		return "", "", err
+	}
+	return userID, email, nil
 }
 
 func (h *AuthHandler) findUser(ctx context.Context, email string) (string, string, []byte, error) {
