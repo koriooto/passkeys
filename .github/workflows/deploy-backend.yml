@@ -47,14 +47,11 @@ jobs:
           password: ${{ secrets.SERVER_PASSWORD }}
           script: |
             cd ${{ env.DEPLOY_PATH }}
-            # Поднимаем только db, ждём готовности
-            docker compose up -d db
+            docker-compose up -d db
             sleep 5
-            # Применяем миграции (idempotent: IF NOT EXISTS)
-            docker compose exec -T db psql -U passkeys -d passkeys -f /migrations/001_init.sql
-            docker compose exec -T db psql -U passkeys -d passkeys -f /migrations/002_rename_domain_to_url.sql
-            docker compose exec -T db psql -U passkeys -d passkeys -f /migrations/003_notes.sql
-            docker compose exec -T db psql -U passkeys -d passkeys -f /migrations/004_refresh_tokens.sql
-            # Собираем и поднимаем api
-            docker compose build --no-cache api
-            docker compose up -d
+            docker-compose exec -T db psql -U passkeys -d passkeys -f /migrations/001_init.sql
+            docker-compose exec -T db psql -U passkeys -d passkeys -f /migrations/002_rename_domain_to_url.sql
+            docker-compose exec -T db psql -U passkeys -d passkeys -f /migrations/003_notes.sql
+            docker-compose exec -T db psql -U passkeys -d passkeys -f /migrations/004_refresh_tokens.sql
+            docker-compose build --no-cache api
+            docker-compose up -d
