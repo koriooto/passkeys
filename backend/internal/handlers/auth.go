@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"log"
 	"net/http"
 	"time"
 
@@ -68,6 +69,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 
 	var exists bool
 	if err := h.DB.QueryRow(r.Context(), "select exists(select 1 from users where email=$1)", req.Email).Scan(&exists); err != nil {
+		log.Printf("[Register] db error (exists check): %v", err)
 		http.Error(w, "db error", http.StatusInternalServerError)
 		return
 	}
@@ -93,12 +95,14 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		"insert into users (email, password_hash, kdf_salt) values ($1, $2, $3) returning id",
 		req.Email, string(hash), salt,
 	).Scan(&userID); err != nil {
+		log.Printf("[Register] db error (insert user): %v", err)
 		http.Error(w, "db error", http.StatusInternalServerError)
 		return
 	}
 
 	accessToken, refreshToken, err := h.createTokenPair(r.Context(), userID, req.Email)
 	if err != nil {
+		log.Printf("[Register] token error (createTokenPair): %v", err)
 		http.Error(w, "token error", http.StatusInternalServerError)
 		return
 	}
