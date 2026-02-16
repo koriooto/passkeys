@@ -3,9 +3,9 @@ services:
     image: postgres:16
     restart: unless-stopped
     environment:
-      POSTGRES_USER: passkeys
-      POSTGRES_PASSWORD: passkeys
-      POSTGRES_DB: passkeys
+      POSTGRES_USER: ${POSTGRES_USER:-passkeys}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_DB: ${POSTGRES_DB:-passkeys}
     ports:
       - "5432:5432"
     volumes:
@@ -19,7 +19,7 @@ services:
     depends_on:
       - db
     environment:
-      DATABASE_URL: postgres://passkeys:passkeys@db:5432/passkeys?sslmode=disable
+      DATABASE_URL: postgres://${POSTGRES_USER:-passkeys}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-passkeys}?sslmode=disable
       JWT_SECRET: ${JWT_SECRET:-change-me}
       JWT_ACCESS_HOURS: ${JWT_ACCESS_HOURS:-1}
       JWT_REFRESH_HOURS: ${JWT_REFRESH_HOURS:-720}

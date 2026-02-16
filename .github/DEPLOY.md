@@ -9,7 +9,10 @@
 | `SERVER_IP` | IP сервера |
 | `SERVER_USER` | Пользователь SSH (обычно `root`) |
 | `SERVER_PASSWORD` | Пароль для SSH |
-| `JWT_SECRET` | Секрет для JWT (обязательно для прода) |
+| `POSTGRES_USER` | Пользователь PostgreSQL (по умолчанию passkeys) |
+| `POSTGRES_PASSWORD` | **Пароль PostgreSQL — обязательно смени!** |
+| `POSTGRES_DB` | Имя БД (по умолчанию passkeys) |
+| `JWT_SECRET` | Секрет для JWT |
 | `JWT_ACCESS_HOURS` | TTL access token в часах (по умолчанию 1) |
 | `JWT_REFRESH_HOURS` | TTL refresh token в часах (по умолчанию 720) |
 
@@ -25,11 +28,13 @@
    mkdir -p /opt/passkeys
    ```
 
-3. (Опционально) Создай `.env` в `/opt/passkeys/` с production-переменными:
-   ```env
-   JWT_SECRET=твой-секретный-ключ
-   # DATABASE_URL, JWT_ACCESS_HOURS, JWT_REFRESH_HOURS — при необходимости
+3. Скопируй `.env.example` в `.env` и задай переменные (локально и в GitHub Secrets для деплоя).
+
+**Если БД уже поднималась с старыми креденшалами** (passkeys/passkeys), нужно сбросить данные:
+   ```bash
+   docker compose down -v
    ```
+   Затем заново задеплой — создастся БД с новыми данными.
 
 ## Триггеры
 
